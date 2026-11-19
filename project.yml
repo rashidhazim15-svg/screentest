@@ -18,6 +18,7 @@ targets:
     sources:
       - ScreenTestApp.swift
     info:
+      path: Generated/Info.plist
       properties:
         CFBundleDisplayName: ScreenTest
         CFBundleName: ScreenTest
