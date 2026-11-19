@@ -1,0 +1,29 @@
+name: ScreenTest
+options:
+  bundleIdPrefix: com.maramm
+  deploymentTarget:
+    iOS: "27.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGNING_ALLOWED: NO
+    TARGETED_DEVICE_FAMILY: "1"
+    SUPPORTED_PLATFORMS: iphoneos
+targets:
+  ScreenTest:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+    info:
+      properties:
+        CFBundleDisplayName: ScreenTest
+        CFBundleName: ScreenTest
+        CFBundleShortVersionString: "0.1"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        NSScreenCaptureUsageDescription: "نحتاج تسجيل الشاشة لاختبار إمكانية بث الشاشة بشكل صريح بإذنك."
+        UIBackgroundModes:
+          - screen-capture
