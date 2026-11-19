@@ -5,23 +5,11 @@ final class Probe: NSObject, ObservableObject, SCContentSharingPickerObserver {
     @Published var log: String = "جاهز — اضغط فحص"
 
     func run() {
-        Task {
-            do {
-                let content = try await SCShareableContent.current
-                var text = "شاشات: \(content.displays.count) | تطبيقات: \(content.applications.count)"
-
-                if #available(iOS 27.0, *) {
-                    SCContentSharingPicker.shared.add(self)
-                    SCContentSharingPicker.shared.present()
-                    text += " | تم فتح منتقي آبل"
-                } else {
-                    text += " | iOS 27 مطلوب"
-                }
-                publish(text, replace: true)
-            } catch {
-                publish("خطأ: \(error.localizedDescription)\n\(error)", replace: true)
-            }
-        }
+        let picker = SCContentSharingPicker.shared
+        picker.addObserver(self)
+        picker.active = true
+        picker.present()
+        publish("تم فتح منتقي آبل — اختر «الشاشة كاملة»", replace: true)
     }
 
     func contentSharingPicker(_ picker: SCContentSharingPicker,
@@ -33,6 +21,10 @@ final class Probe: NSObject, ObservableObject, SCContentSharingPickerObserver {
     func contentSharingPicker(_ picker: SCContentSharingPicker,
                               didCancelFor stream: SCStream?) {
         publish("\nأُلغي الاختيار")
+    }
+
+    func contentSharingPickerStartDidFailWithError(_ error: any Error) {
+        publish("\nفشل المنتقي: \(error.localizedDescription)")
     }
 
     private func publish(_ text: String, replace: Bool = false) {
