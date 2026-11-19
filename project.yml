@@ -16,7 +16,7 @@ targets:
     type: application
     platform: iOS
     sources:
-      - Sources
+      - ScreenTestApp.swift
     info:
       properties:
         CFBundleDisplayName: ScreenTest
