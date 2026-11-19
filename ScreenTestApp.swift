@@ -6,8 +6,8 @@ final class Probe: NSObject, ObservableObject, SCContentSharingPickerObserver {
 
     func run() {
         let picker = SCContentSharingPicker.shared
-        picker.addObserver(self)
-        picker.active = true
+        picker.add(self)
+        picker.isActive = true
         picker.present()
         publish("تم فتح منتقي آبل — اختر «الشاشة كاملة»", replace: true)
     }
