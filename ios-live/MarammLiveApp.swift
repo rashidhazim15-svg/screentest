@@ -5,6 +5,7 @@ import ScreenCaptureKit
 import CoreMedia
 import CoreVideo
 import CoreImage
+import UserNotifications
 
 private let FB_ROOT = "https://chatapp-e436f-default-rtdb.firebaseio.com/%D8%B9%D8%AF%D9%84%D9%88"
 private let SITE_BASE = "https://m.maramm.workers.dev/"
@@ -24,7 +25,7 @@ private extension UIColor {
     }
 }
 
-// MARK: - JS bridge
+// MARK: - JS bridge: offline-light + native screen capture + notifications
 
 private let BRIDGE_JS = """
 (function () {
@@ -32,17 +33,104 @@ private let BRIDGE_JS = """
   window.__marammBridgeInstalled = true;
   window.__marammNative = true;
 
+  /* ---- 1) Kill non-essential internet requests inside the app ---------- */
+  var BLOCK = [
+    'fonts.googleapis.com', 'fonts.gstatic.com', 'www.gstatic.com',
+    'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png',
+    'api.deezer.com', 'itunes.apple.com',
+    'image.pollinations.ai', 'text.pollinations.ai',
+    'ntfy.sh', 'api.telegram.org',
+    'sw.js'
+  ];
+  function blocked(u) {
+    u = String(u || '');
+    for (var i = 0; i < BLOCK.length; i++) if (u.indexOf(BLOCK[i]) >= 0) return true;
+    return false;
+  }
+  var BLANK_GIF = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
+
+  var realFetch = window.fetch;
+  window.fetch = function (input, init) {
+    var u = typeof input === 'string' ? input : ((input && input.url) || '');
+    if (blocked(u)) return Promise.reject(new Error('blocked in native app'));
+    return realFetch.apply(this, arguments);
+  };
+
+  var realOpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function (method, url) {
+    var args = Array.prototype.slice.call(arguments);
+    if (blocked(url)) args[1] = 'data:text/plain,';
+    return realOpen.apply(this, args);
+  };
+
+  try {
+    var imgDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+    Object.defineProperty(HTMLImageElement.prototype, 'src', {
+      configurable: true,
+      get: function () { return imgDesc.get.call(this); },
+      set: function (v) { imgDesc.set.call(this, blocked(v) ? BLANK_GIF : v); }
+    });
+    var scriptDesc = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src');
+    Object.defineProperty(HTMLScriptElement.prototype, 'src', {
+      configurable: true,
+      get: function () { return scriptDesc.get.call(this); },
+      set: function (v) { scriptDesc.set.call(this, blocked(v) ? 'data:text/javascript,' : v); }
+    });
+  } catch (e) {}
+
+  try {
+    var mo = new MutationObserver(function (list) {
+      list.forEach(function (m) {
+        (m.addedNodes || []).forEach(function (n) {
+          if (!n || n.nodeType !== 1) return;
+          var tag = n.tagName.toLowerCase();
+          var v = '';
+          if (tag === 'img' || tag === 'script') v = n.src || '';
+          else if (tag === 'link') v = n.href || '';
+          if (v && blocked(v) && n.remove) n.remove();
+        });
+      });
+    });
+    mo.observe(document.documentElement, { childList: true, subtree: true });
+  } catch (e) {}
+
+  /* Service worker is disabled; native local notifications replace push. */
+  try {
+    Object.defineProperty(navigator, 'serviceWorker', {
+      configurable: true,
+      value: {
+        register: function () { return Promise.reject(new Error('disabled')); },
+        addEventListener: function () {},
+        removeEventListener: function () {},
+        ready: new Promise(function () {})
+      }
+    });
+  } catch (e) {}
+
+  /* ---- 2) Full-screen layout with safe-area inset for the status bar ---- */
+  var style = document.createElement('style');
+  style.textContent = [
+    'html,body{margin:0!important;padding:0!important;background:#0d0f14!important;overflow:hidden!important;}',
+    '#chatBox{top:env(safe-area-inset-top,0px)!important;bottom:env(safe-area-inset-bottom,0px)!important;left:0!important;right:0!important;width:100vw!important;height:auto!important;}',
+    '#chatBox.match{top:env(safe-area-inset-top,0px)!important;bottom:env(safe-area-inset-bottom,0px)!important;height:auto!important;}',
+    '#chatSettings,#devPanel,#imgViewer,#allMediaModal{top:env(safe-area-inset-top,0px)!important;bottom:env(safe-area-inset-bottom,0px)!important;height:auto!important;}'
+  ].join('');
+  (document.head || document.documentElement).appendChild(style);
+
+  /* ---- 3) Native screen-capture bridge -------------------------------- */
   var canvas = document.createElement('canvas');
-  canvas.width = 720;
-  canvas.height = 1280;
+  canvas.width = 640;
+  canvas.height = 1136;
   canvas.style.display = 'none';
   var ctx = canvas.getContext('2d', { alpha: false });
   var stream = null;
   var pending = null;
 
-  function notify(action) {
+  function notify(action, extra) {
     try {
-      window.webkit.messageHandlers.marammNative.postMessage({ action: action });
+      var msg = { action: action };
+      if (extra) msg.body = extra;
+      window.webkit.messageHandlers.marammNative.postMessage(msg);
     } catch (e) {}
   }
 
@@ -86,9 +174,7 @@ private let BRIDGE_JS = """
     p.reject(e);
   };
 
-  window.__nativeStopped = function () {
-    stream = null;
-  };
+  window.__nativeStopped = function () { stream = null; };
 
   var md = navigator.mediaDevices;
   if (!md) {
@@ -120,6 +206,7 @@ private final class NativeBridge: NSObject, WKScriptMessageHandler {
             switch action {
             case "start": self.owner?.startNativeCapture()
             case "stop": self.owner?.stopNativeCapture()
+            case "notify": self.owner?.notify(body: body["body"] as? String)
             default: break
             }
         }
@@ -131,7 +218,8 @@ private final class NativeBridge: NSObject, WKScriptMessageHandler {
 final class LiveViewController: UIViewController,
                                 SCContentSharingPickerObserver,
                                 SCStreamOutput,
-                                SCStreamDelegate {
+                                SCStreamDelegate,
+                                UNUserNotificationCenterDelegate {
 
     private var webView: WKWebView!
     private let bridge = NativeBridge()
@@ -146,7 +234,10 @@ final class LiveViewController: UIViewController,
     override func viewDidLoad() {
         super.viewDidLoad()
         bridge.owner = self
-        view.backgroundColor = UIColor(hex: "#17181f")
+        view.backgroundColor = UIColor(hex: "#0d0f14")
+
+        UNUserNotificationCenter.current().delegate = self
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
 
         let contentController = WKUserContentController()
         contentController.add(bridge, name: "marammNative")
@@ -164,18 +255,17 @@ final class LiveViewController: UIViewController,
 
         webView = WKWebView(frame: .zero, configuration: config)
         webView.isOpaque = true
-        webView.backgroundColor = UIColor(hex: "#17181f")
-        webView.scrollView.backgroundColor = UIColor(hex: "#17181f")
+        webView.backgroundColor = UIColor(hex: "#0d0f14")
+        webView.scrollView.backgroundColor = UIColor(hex: "#0d0f14")
         webView.translatesAutoresizingMaskIntoConstraints = false
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         view.addSubview(webView)
 
-        let guide = view.safeAreaLayoutGuide
         NSLayoutConstraint.activate([
-            webView.leadingAnchor.constraint(equalTo: guide.leadingAnchor),
-            webView.trailingAnchor.constraint(equalTo: guide.trailingAnchor),
-            webView.topAnchor.constraint(equalTo: guide.topAnchor),
-            webView.bottomAnchor.constraint(equalTo: guide.bottomAnchor)
+            webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            webView.topAnchor.constraint(equalTo: view.topAnchor),
+            webView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
 
         loadPage()
@@ -191,6 +281,29 @@ final class LiveViewController: UIViewController,
         }
         webView.loadHTMLString(html, baseURL: URL(string: SITE_BASE))
     }
+
+    // MARK: - Notifications
+
+    func notify(body: String?) {
+        let text = (body ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "رسالة جديدة"
+        content.body = String(text.prefix(160))
+        content.sound = .default
+        let request = UNNotificationRequest(identifier: UUID().uuidString,
+                                            content: content,
+                                            trigger: nil)
+        UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .sound])
+    }
+
+    // MARK: - Native screen capture
 
     func startNativeCapture() {
         if stream != nil {
@@ -215,8 +328,8 @@ final class LiveViewController: UIViewController,
 
     private func startStream(with filter: SCContentFilter) {
         let cfg = SCStreamConfiguration()
-        cfg.width = 720
-        cfg.height = 1280
+        cfg.width = 640
+        cfg.height = 1136
         cfg.capturesAudio = false
 
         let s = SCStream(filter: filter, configuration: cfg, delegate: self)
@@ -261,18 +374,18 @@ final class LiveViewController: UIViewController,
         guard type == .screen else { return }
         guard !sendingToJS else { return }
         let now = Date()
-        guard now.timeIntervalSince(lastJSSent) >= 0.05 else { return }
+        guard now.timeIntervalSince(lastJSSent) >= 0.065 else { return }
         guard let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
         let ci = CIImage(cvImageBuffer: buffer)
         guard let cg = ciContext.createCGImage(ci, from: ci.extent) else { return }
         let raw = UIImage(cgImage: cg)
 
-        let scale = min(720 / raw.size.width, 1280 / raw.size.height, 1.0)
+        let scale = min(640 / raw.size.width, 1136 / raw.size.height, 1.0)
         let target = CGSize(width: floor(raw.size.width * scale),
                             height: floor(raw.size.height * scale))
         let img = raw.preparingThumbnail(of: target) ?? raw
-        guard let jpeg = img.jpegData(compressionQuality: 0.45) else { return }
+        guard let jpeg = img.jpegData(compressionQuality: 0.40) else { return }
 
         sendingToJS = true
         lastJSSent = now
@@ -285,7 +398,7 @@ final class LiveViewController: UIViewController,
             self?.sendingToJS = false
         }
 
-        if now.timeIntervalSince(lastFirebaseSent) >= 0.4 {
+        if now.timeIntervalSince(lastFirebaseSent) >= 0.6 {
             lastFirebaseSent = now
             put("screen/frame", [
                 "b64": b64,
