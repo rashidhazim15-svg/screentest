@@ -1,0 +1,30 @@
+name: MarammLive
+options:
+  bundleIdPrefix: com.maramm
+  deploymentTarget:
+    iOS: "27.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGNING_ALLOWED: NO
+    TARGETED_DEVICE_FAMILY: "1"
+    SUPPORTED_PLATFORMS: iphoneos
+targets:
+  MarammLive:
+    type: application
+    platform: iOS
+    sources:
+      - MarammLiveApp.swift
+    info:
+      path: Generated/Info.plist
+      properties:
+        CFBundleDisplayName: Maramm Live
+        CFBundleName: MarammLive
+        CFBundleShortVersionString: "1"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        NSScreenCaptureUsageDescription: "نحتاج إذن تسجيل الشاشة لعرض شاشتك المباشرة على موقع الطرف الآخر بإذنك."
+        UIBackgroundModes:
+          - screen-capture
