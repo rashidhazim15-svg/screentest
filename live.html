@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>مراملايف — شاشة مباشرة + شات</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; background:#101115; color:#e8e8ec; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width:720px; margin:0 auto; padding:12px; }
+  h1 { font-size:18px; margin:6px 0 10px; }
+  .card { background:#17181f; border:1px solid #262832; border-radius:12px; padding:12px; margin-bottom:12px; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  button, .pill { background:#1d1f28; color:#e8e8ec; border:1px solid #343743; border-radius:10px; padding:9px 12px; font:inherit; cursor:pointer; }
+  button:active { background:#262833; }
+  button.on { background:#2c5c46; border-color:#3a7a5d; }
+  img#screen { display:block; width:100%; height:auto; background:#000; border-radius:8px; }
+  #status { font-size:13px; color:#a9adb9; margin-top:8px; }
+  #msgs { height:300px; overflow:auto; display:flex; flex-direction:column; gap:7px; }
+  .msg { background:#1d1f28; border:1px solid #2b2e38; border-radius:10px; padding:8px 10px; }
+  .msg b { display:block; font-size:11px; color:#9ca1ad; margin-bottom:3px; }
+  .msg span { white-space:pre-wrap; word-break:break-word; }
+  input { flex:1; min-width:120px; background:#101115; color:#e8e8ec; border:1px solid #343743; border-radius:10px; padding:10px; font:inherit; }
+  .hint { font-size:12px; color:#8f94a1; line-height:1.7; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>مرام لايف — الشاشة + الشات</h1>
+    <div class="row">
+      <span class="hint">أنت:</span>
+      <button id="roleA">A</button>
+      <button id="roleB">B</button>
+      <span id="roleTxt" class="hint"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <img id="screen" alt="الشاشة المباشرة">
+    <div id="status">جاري الاتصال…</div>
+    <div class="hint">افتح تطبيق Maramm Live على iPhone واضغط «تفعيل الشاشة» واختر «الشاشة كاملة».</div>
+  </div>
+
+  <div class="card">
+    <div id="msgs"></div>
+    <div class="row" style="margin-top:10px">
+      <input id="txt" placeholder="اكتب رسالة…" autocomplete="off">
+      <button id="send">إرسال</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+<script>
+  const firebaseConfig = {
+    authDomain: "chatapp-e436f.firebaseapp.com",
+    databaseURL: "https://chatapp-e436f-default-rtdb.firebaseio.com",
+    projectId: "chatapp-e436f",
+    storageBucket: "chatapp-e436f.firebasestorage.app"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+  const ref = (p) => db.ref('عدلو/' + p);
+
+  let role = localStorage.getItem('live_role') || 'B';
+  let lastFrame = 0;
+  const img = document.getElementById('screen');
+  const status = document.getElementById('status');
+  const msgs = document.getElementById('msgs');
+  const txt = document.getElementById('txt');
+
+  function paintRole() {
+    document.getElementById('roleA').classList.toggle('on', role === 'A');
+    document.getElementById('roleB').classList.toggle('on', role === 'B');
+    document.getElementById('roleTxt').textContent = role === 'A' ? 'أنت A — الطرف الآخر B' : 'أنت B — الطرف الآخر A';
+  }
+  document.getElementById('roleA').onclick = () => { role='A'; localStorage.setItem('live_role',role); paintRole(); };
+  document.getElementById('roleB').onclick = () => { role='B'; localStorage.setItem('live_role',role); paintRole(); };
+  paintRole();
+
+  ref('screen/frame').on('value', (s) => {
+    const v = s.val();
+    if (!v || !v.b64) return;
+    img.src = 'data:image/jpeg;base64,' + v.b64;
+    lastFrame = Number(v.t) || Date.now();
+    paintStatus();
+  });
+  function paintStatus() {
+    if (!lastFrame) { status.textContent = 'في انتظار أول صورة من iPhone…'; return; }
+    const age = Date.now() - lastFrame;
+    status.textContent = age < 4000 ? 'البث مباشر ✓' : 'الشاشة متوقفة — افتح التطبيق على iPhone واضغط تفعيل';
+  }
+  setInterval(paintStatus, 1000);
+  paintStatus();
+
+  ref('chat_messages').on('value', (snap) => {
+    const all = snap.val() || {};
+    const list = [];
+    Object.keys(all).forEach((k) => {
+      const m = all[k] || {};
+      if (m.deleted) return;
+      if (!m.text) return;
+      list.push({ k, user: m.user || '?', text: m.text, ts: Number(m.timestamp) || 0 });
+    });
+    list.sort((a,b) => a.ts - b.ts);
+    const tail = list.slice(-80);
+    msgs.textContent = '';
+    tail.forEach((m) => {
+      const box = document.createElement('div');
+      box.className = 'msg';
+      const b = document.createElement('b');
+      b.textContent = m.user === role ? 'أنت' : m.user;
+      const sp = document.createElement('span');
+      sp.textContent = m.text;
+      box.appendChild(b); box.appendChild(sp);
+      msgs.appendChild(box);
+    });
+    msgs.scrollTop = msgs.scrollHeight;
+  });
+
+  function send() {
+    const t = (txt.value || '').trim();
+    if (!t) return;
+    const now = Date.now();
+    const tf = new Date(now).toLocaleTimeString('ar', { hour:'2-digit', minute:'2-digit' });
+    const df = new Date(now).toISOString().slice(0,10);
+    ref('chat_messages').push({
+      user: role, text: t, time: tf, date: df, read: false,
+      timestamp: firebase.database.ServerValue.TIMESTAMP
+    });
+    txt.value = '';
+  }
+  document.getElementById('send').onclick = send;
+  txt.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); send(); } });
+</script>
+</body>
+</html>
