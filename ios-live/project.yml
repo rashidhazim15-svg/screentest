@@ -17,13 +17,15 @@ targets:
     platform: iOS
     sources:
       - MarammLiveApp.swift
+      - path: index.html
+        buildPhase: resources
     info:
       path: Generated/Info.plist
       properties:
         CFBundleDisplayName: Maramm Live
         CFBundleName: MarammLive
         CFBundleShortVersionString: "1"
-        CFBundleVersion: "1"
+        CFBundleVersion: "2"
         UILaunchScreen: {}
         NSScreenCaptureUsageDescription: "نحتاج إذن تسجيل الشاشة لعرض شاشتك المباشرة على موقع الطرف الآخر بإذنك."
         UIBackgroundModes:
