@@ -34,22 +34,8 @@ try {
 <meta name="apple-mobile-web-app-title" content="برنامج الحياة الصحية">
 <meta name="application-name" content="برنامج الحياة الصحية">
 <meta name="format-detection" content="telephone=no">
-<link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
-<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
-<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
-<link rel="apple-touch-icon" sizes="192x192" href="icon-192.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <link rel="dns-prefetch" href="https://chatapp-e436f-default-rtdb.firebaseio.com">
-<link rel="dns-prefetch" href="https://itunes.apple.com">
-<link rel="dns-prefetch" href="https://api.deezer.com">
-<link rel="dns-prefetch" href="https://image.pollinations.ai">
-<link rel="dns-prefetch" href="https://text.pollinations.ai">
 <title>برنامج الحياة الصحية</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Almarai:wght@300;400;700;800&display=swap" media="print" onload="this.media='all'">
-<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Almarai:wght@300;400;700;800&display=swap"></noscript>
 <style>
 
 :root{
@@ -5697,13 +5683,13 @@ html[data-theme="dark"] .rp-body b{ color:var(--dm-ink); }
   } catch (e) {}
 
   /* ---------- Web Push (إشعارات حتى والتطبيق مسكّر) ---------- */
-  const VAPID_PUBLIC = '';
-  const PUSH_WORKER = '';
+  const VAPID_PUBLIC = 'BCP4TF7TAH4_DObVL6wbojqiRfoBRUXJpmQl_Yp4NxGc7-L9CN3ZD4IM04nZZ16NwAn546rjUz8zwbskVa4c1jA';
+  const PUSH_WORKER = 'https://rough-surf-5351.maramm.workers.dev/';
   const NTFY_TOPIC = '';
   const TG_TOKEN = '';
   const TG_CHAT = '';
   const TG_ROLE = 'A';
-  const PUSH_SECRET = '';
+  const PUSH_SECRET = 'sh7k2m9q4t8v1x6z3b5n0c';
   let pushBusy = false, pushSub = null;
   let chatPresenceOn = null, chatPresenceTimer = 0;
   /* The "in the chat" flag is only trusted while it is fresh: a killed app or
@@ -5839,6 +5825,9 @@ html[data-theme="dark"] .rp-body b{ color:var(--dm-ink); }
   function deliverNotify(text) {
     const body = String(text || '').slice(0, 160);
     if (!body) return;
+    try {
+      window.webkit.messageHandlers.marammNative.postMessage({ action: 'notify', body: body });
+    } catch (e) {}
     if (NTFY_TOPIC) {
       try {
         const ntfyPayload = {
@@ -11949,10 +11938,10 @@ function upDist(m) {
     try {
       const p = sender.getParameters();
       if (!p.encodings || !p.encodings.length) p.encodings = [{}];
-      p.encodings[0].maxBitrate = 8000000;
-      p.encodings[0].maxFramerate = 30;
+      p.encodings[0].maxBitrate = 600000;
+      p.encodings[0].maxFramerate = 16;
       p.encodings[0].scaleResolutionDownBy = 1;
-      p.degradationPreference = 'maintain-resolution';
+      p.degradationPreference = 'maintain-framerate';
       sender.setParameters(p).catch(() => {});
     } catch (e) {}
     try {
