@@ -35,7 +35,10 @@ private let BRIDGE_JS = """
 
   /* ---- 1) Kill non-essential internet requests inside the app ---------- */
   var BLOCK = [
-    'fonts.googleapis.com', 'fonts.gstatic.com', 'www.gstatic.com',
+    /* www.gstatic.com is NOT blocked: Firebase SDK scripts are served from
+       there. Blocking it made `firebase` undefined and aborted the whole page
+       script, so the chat button never worked. Only the font host is blocked. */
+    'fonts.googleapis.com', 'fonts.gstatic.com',
     'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png',
     'api.deezer.com', 'itunes.apple.com',
     'image.pollinations.ai', 'text.pollinations.ai',
