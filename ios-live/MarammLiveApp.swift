@@ -111,8 +111,12 @@ private let BRIDGE_JS = """
   var style = document.createElement('style');
   style.textContent = [
     'html,body{margin:0!important;padding:0!important;background:#0d0f14!important;overflow:hidden!important;}',
-    '#chatBox{top:env(safe-area-inset-top,0px)!important;bottom:env(safe-area-inset-bottom,0px)!important;left:0!important;right:0!important;width:100vw!important;height:auto!important;}',
-    '#chatBox.match{top:env(safe-area-inset-top,0px)!important;bottom:env(safe-area-inset-bottom,0px)!important;height:auto!important;}',
+    /* :not(.kb) is essential: while the keyboard is open applyViewport() pins
+       #chatBox to the visual viewport with INLINE top/height. A blanket
+       !important rule here would override those inline values and break the
+       island-follows-keyboard behaviour. */
+    '#chatBox:not(.kb){top:env(safe-area-inset-top,0px)!important;bottom:env(safe-area-inset-bottom,0px)!important;left:0!important;right:0!important;width:100vw!important;height:auto!important;}',
+    '#chatBox.match:not(.kb){top:env(safe-area-inset-top,0px)!important;bottom:env(safe-area-inset-bottom,0px)!important;height:auto!important;}',
     '#chatSettings,#devPanel,#imgViewer,#allMediaModal{top:env(safe-area-inset-top,0px)!important;bottom:env(safe-area-inset-bottom,0px)!important;height:auto!important;}'
   ].join('');
   (document.head || document.documentElement).appendChild(style);
@@ -261,6 +265,8 @@ final class LiveViewController: UIViewController,
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         view.addSubview(webView)
 
+        // Edge-to-edge: the page itself applies safe-area insets, so there are
+        // no black native strips above/below the chat.
         NSLayoutConstraint.activate([
             webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -353,6 +359,8 @@ final class LiveViewController: UIViewController,
         }
     }
 
+    // MARK: - Picker observer
+
     func contentSharingPicker(_ picker: SCContentSharingPicker,
                               didUpdateWith filter: SCContentFilter,
                               for stream: SCStream?) {
@@ -367,6 +375,8 @@ final class LiveViewController: UIViewController,
     func contentSharingPickerStartDidFailWithError(_ error: any Error) {
         evalJS("window.__nativeFail && window.__nativeFail('picker-error')")
     }
+
+    // MARK: - Frame output (balanced quality for weak links)
 
     func stream(_ stream: SCStream,
                 didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
@@ -417,6 +427,8 @@ final class LiveViewController: UIViewController,
         }
     }
 
+    // MARK: - Firebase fallback frame path (simple viewer compatibility)
+
     private func put(_ path: String, _ object: [String: Any]) {
         guard let url = URL(string: FB_ROOT + "/" + path + ".json") else { return }
         var req = URLRequest(url: url)
@@ -426,6 +438,8 @@ final class LiveViewController: UIViewController,
         URLSession.shared.dataTask(with: req).resume()
     }
 }
+
+// MARK: - SwiftUI wrapper
 
 struct WebViewContainer: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> LiveViewController {
