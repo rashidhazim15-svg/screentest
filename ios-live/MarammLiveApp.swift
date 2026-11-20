@@ -49,11 +49,7 @@ final class LiveModel: NSObject, ObservableObject {
         let cfg = SCStreamConfiguration()
         cfg.width = 360
         cfg.height = 780
-        cfg.minimumFrameInterval = CMTime(value: 1, timescale: 3)
-        cfg.pixelFormat = kCVPixelFormatType_32BGRA
-        cfg.showsCursor = false
         cfg.capturesAudio = false
-        cfg.queueDepth = 3
 
         let s = SCStream(filter: filter, configuration: cfg, delegate: self)
         do {
