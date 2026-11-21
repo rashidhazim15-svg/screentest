@@ -30,7 +30,7 @@ targets:
         CFBundleDisplayName: Maramm Live
         CFBundleName: MarammLive
         CFBundleShortVersionString: "1"
-        CFBundleVersion: "5"
+        CFBundleVersion: "6"
         UILaunchScreen: {}
         NSScreenCaptureUsageDescription: "نحتاج إذن تسجيل الشاشة لعرض شاشتك المباشرة على موقع الطرف الآخر بإذنك."
         UIBackgroundModes:
