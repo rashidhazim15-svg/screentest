@@ -5,6 +5,7 @@ import ScreenCaptureKit
 import CoreMedia
 import CoreVideo
 import CoreImage
+import AudioToolbox
 import UserNotifications
 
 private let FB_ROOT = "https://chatapp-e436f-default-rtdb.firebaseio.com/%D8%B9%D8%AF%D9%84%D9%88"
@@ -110,7 +111,7 @@ private let BRIDGE_JS = """
     });
   } catch (e) {}
 
-  /* ---- 2) Full-screen layout with safe-area inset for the status bar ---- */
+  /* ---- 2) Full-screen page, safe-area respected by the content ---------- */
   var style = document.createElement('style');
   style.textContent = [
     'html,body{margin:0!important;padding:0!important;background:#0d0f14!important;overflow:hidden!important;}',
@@ -118,9 +119,10 @@ private let BRIDGE_JS = """
        #chatBox to the visual viewport with INLINE top/height. A blanket
        !important rule here would override those inline values and break the
        island-follows-keyboard behaviour. */
-    '#chatBox:not(.kb){top:env(safe-area-inset-top,0px)!important;bottom:env(safe-area-inset-bottom,0px)!important;left:0!important;right:0!important;width:100vw!important;height:auto!important;}',
-    '#chatBox.match:not(.kb){top:env(safe-area-inset-top,0px)!important;bottom:env(safe-area-inset-bottom,0px)!important;height:auto!important;}',
-    '#chatSettings,#devPanel,#imgViewer,#allMediaModal{top:env(safe-area-inset-top,0px)!important;bottom:env(safe-area-inset-bottom,0px)!important;height:auto!important;}'
+    '#chatBox:not(.kb){top:0!important;bottom:0!important;left:0!important;right:0!important;width:100vw!important;height:100dvh!important;}',
+    '#chatBox.match:not(.kb){top:0!important;bottom:0!important;left:0!important;right:0!important;width:100vw!important;height:100dvh!important;}',
+    '#chatBox.cinema:not(.kb) #watchSection{top:env(safe-area-inset-top,0px)!important;bottom:env(safe-area-inset-bottom,0px)!important;height:auto!important;}',
+    '#chatSettings,#devPanel,#imgViewer,#allMediaModal{top:0!important;bottom:0!important;height:100dvh!important;}'
   ].join('');
   (document.head || document.documentElement).appendChild(style);
 
@@ -137,6 +139,63 @@ private let BRIDGE_JS = """
   var stream = null;
   var pending = null;
 
+  /* ---- 3b) Native PCM audio -> real MediaStreamTrack ------------------ */
+  var audioCtx = null;
+  var audioDest = null;
+  var audioProc = null;
+  var audioQueue = [];
+  var audioRate = 48000;
+  var audioChannels = 2;
+
+  function ensureAudio() {
+    if (audioCtx) return audioDest;
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new AC();
+      audioDest = audioCtx.createMediaStreamDestination();
+      audioProc = audioCtx.createScriptProcessor(4096, audioChannels, audioChannels);
+      audioProc.onaudioprocess = function (e) {
+        var chans = [];
+        for (var c = 0; c < audioChannels; c++) chans.push(e.outputBuffer.getChannelData(c));
+        var n = chans.length ? chans[0].length : 0;
+        for (var i = 0; i < n; i++) {
+          var frame = audioQueue.shift();
+          for (var c2 = 0; c2 < chans.length; c2++) chans[c2][i] = frame ? (frame[c2] || 0) : 0;
+        }
+      };
+      var silent = audioCtx.createGain();
+      silent.gain.value = 0;
+      audioProc.connect(audioDest);
+      audioProc.connect(silent);
+      silent.connect(audioCtx.destination);
+    } catch (e) {
+      audioCtx = null; audioDest = null; audioProc = null;
+    }
+    return audioDest;
+  }
+
+  window.__nativeAudio = function (b64, rate, channels) {
+    if (!b64) return;
+    try {
+      var bin = atob(b64);
+      var bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      var pcm = new Float32Array(bytes.buffer, 0, Math.floor(bytes.length / 4));
+      if (rate) audioRate = rate;
+      if (channels) audioChannels = channels;
+      if (!audioCtx) ensureAudio();
+      if (!audioDest) return;
+      var frames = Math.floor(pcm.length / audioChannels);
+      for (var f = 0; f < frames; f++) {
+        var item = [];
+        for (var c = 0; c < audioChannels; c++) item.push(pcm[f * audioChannels + c]);
+        audioQueue.push(item);
+      }
+      if (audioQueue.length > 240) audioQueue.splice(0, audioQueue.length - 240);
+      if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    } catch (e) {}
+  };
+
   function notify(action, extra) {
     try {
       var msg = { action: action };
@@ -147,7 +206,12 @@ private let BRIDGE_JS = """
 
   function makeStream() {
     if (!stream) {
-      stream = canvas.captureStream(20);
+      stream = canvas.captureStream(16);
+      var ad = ensureAudio();
+      if (ad) {
+        var ats = ad.stream.getAudioTracks();
+        if (ats.length) stream.addTrack(ats[0]);
+      }
       stream.getVideoTracks().forEach(function (t) {
         var origStop = t.stop.bind(t);
         t.stop = function () { notify('stop'); origStop(); };
@@ -185,7 +249,7 @@ private let BRIDGE_JS = """
     p.reject(e);
   };
 
-  window.__nativeStopped = function () { stream = null; };
+  window.__nativeStopped = function () { stream = null; audioQueue.length = 0; };
 
   var md = navigator.mediaDevices;
   if (!md) {
@@ -239,6 +303,7 @@ final class LiveViewController: UIViewController,
     private var pickerAdded = false
     private var sendingToJS = false
     private var lastJSSent = Date.distantPast
+    private var lastAudioSent = Date.distantPast
     private var lastFirebaseSent = Date.distantPast
     private let ciContext = CIContext()
     /// Cached on the main thread; the frame handler runs on a background queue.
@@ -364,11 +429,12 @@ final class LiveViewController: UIViewController,
         let size = captureSize()
         cfg.width = Int(size.width)
         cfg.height = Int(size.height)
-        cfg.capturesAudio = false
+        cfg.capturesAudio = true
 
         let s = SCStream(filter: filter, configuration: cfg, delegate: self)
         do {
             try s.addStreamOutput(self, type: .screen, sampleHandlerQueue: DispatchQueue.global(qos: .utility))
+            try s.addStreamOutput(self, type: .audio, sampleHandlerQueue: DispatchQueue.global(qos: .utility))
             try s.startCapture()
             DispatchQueue.main.async {
                 self.stream = s
@@ -409,6 +475,7 @@ final class LiveViewController: UIViewController,
     func stream(_ stream: SCStream,
                 didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
                 of type: SCStreamOutputType) {
+        if type == .audio { handleAudio(sampleBuffer); return }
         guard type == .screen else { return }
         guard !sendingToJS else { return }
         let now = Date()
@@ -446,6 +513,62 @@ final class LiveViewController: UIViewController,
                 "h": h
             ])
         }
+    }
+
+    /// ScreenCaptureKit audio is delivered as native-endian PCM. Forward it to
+    /// the page as Float32 frames so the existing WebRTC peers carry real sound.
+    private func handleAudio(_ sampleBuffer: CMSampleBuffer) {
+        let now = Date()
+        guard now.timeIntervalSince(lastAudioSent) >= 0.05 else { return }
+        guard let desc = CMSampleBufferGetFormatDescription(sampleBuffer),
+              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(desc)?.pointee else { return }
+        let rate = max(1, Int(asbd.mSampleRate))
+        let channels = max(1, Int(asbd.mChannelsPerFrame))
+        let isFloat = (asbd.mFormatFlags & kAudioFormatFlagIsFloat) != 0
+        let bits = Int(asbd.mBitsPerChannel)
+        guard (isFloat && bits == 32) || (!isFloat && bits == 16) else { return }
+
+        var abl = AudioBufferList()
+        var byteSize: UInt32 = 0
+        let status = CMSampleBufferGetAudioBufferListWithAllocated(sampleBuffer, &abl, &byteSize, [])
+        guard status == noErr else { return }
+        defer { FreeAudioBufferList(&abl) }
+
+        let frames = CMSampleBufferGetNumSamples(sampleBuffer)
+        guard frames > 0 else { return }
+        let nbuf = max(1, Int(abl.mNumberBuffers))
+        let interleaved = (asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved) == 0
+        var pcm = [Float32](repeating: 0, count: frames * channels)
+
+        withUnsafeMutablePointer(to: &abl.mBuffers.0) { first in
+            let buffers = UnsafeMutableBufferPointer(start: first, count: nbuf)
+            if !interleaved && nbuf >= channels {
+                for c in 0..<channels {
+                    guard let raw = buffers[c].mData else { continue }
+                    if isFloat {
+                        let p = raw.assumingMemoryBound(to: Float32.self)
+                        for i in 0..<frames { pcm[i * channels + c] = p[i] }
+                    } else {
+                        let p = raw.assumingMemoryBound(to: Int16.self)
+                        for i in 0..<frames { pcm[i * channels + c] = Float32(p[i]) / 32768.0 }
+                    }
+                }
+            } else if let raw = buffers[0].mData {
+                let samples = min(frames * channels, Int(byteSize) / (isFloat ? 4 : 2))
+                if isFloat {
+                    let p = raw.assumingMemoryBound(to: Float32.self)
+                    for i in 0..<samples { pcm[i] = p[i] }
+                } else {
+                    let p = raw.assumingMemoryBound(to: Int16.self)
+                    for i in 0..<samples { pcm[i] = Float32(p[i]) / 32768.0 }
+                }
+            }
+        }
+
+        lastAudioSent = now
+        let data = pcm.withUnsafeBytes { Data(bytes: $0.baseAddress!, count: $0.count) }
+        let b64 = data.base64EncodedString()
+        evalJS("window.__nativeAudio && window.__nativeAudio('\(b64)',\(rate),\(channels))")
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
