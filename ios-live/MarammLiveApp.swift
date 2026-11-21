@@ -126,8 +126,12 @@ private let BRIDGE_JS = """
 
   /* ---- 3) Native screen-capture bridge -------------------------------- */
   var canvas = document.createElement('canvas');
-  canvas.width = 640;
-  canvas.height = 1136;
+  /* Match the phone's real aspect ratio. The native bridge replaces these
+     with the exact safe-area size once the first captured frame arrives. */
+  var capW = 640;
+  var capH = Math.max(2, Math.round(capW * (window.innerHeight / Math.max(1, window.innerWidth)) / 2) * 2);
+  canvas.width = capW;
+  canvas.height = capH;
   canvas.style.display = 'none';
   var ctx = canvas.getContext('2d', { alpha: false });
   var stream = null;
@@ -237,6 +241,8 @@ final class LiveViewController: UIViewController,
     private var lastJSSent = Date.distantPast
     private var lastFirebaseSent = Date.distantPast
     private let ciContext = CIContext()
+    /// Cached on the main thread; the frame handler runs on a background queue.
+    private var stageSize = CGSize(width: 640, height: 1136)
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -278,6 +284,19 @@ final class LiveViewController: UIViewController,
         ])
 
         loadPage()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard webView != nil else { return }
+        let insets = webView.safeAreaInsets
+        let w = max(1, webView.bounds.width - insets.left - insets.right)
+        let h = max(1, webView.bounds.height - insets.top - insets.bottom)
+        let scale = min(640 / w, 1.0)
+        var size = CGSize(width: floor(w * scale), height: floor(h * scale))
+        size.width = floor(size.width / 2) * 2
+        size.height = floor(size.height / 2) * 2
+        stageSize = CGSize(width: max(2, size.width), height: max(2, size.height))
     }
 
     private func loadPage() {
@@ -335,10 +354,16 @@ final class LiveViewController: UIViewController,
         evalJS("window.__nativeStopped && window.__nativeStopped()")
     }
 
+    /// The exact size of the chat stage (cached from viewDidLayoutSubviews,
+    /// because the frame handler runs off the main thread). Matching this to
+    /// the viewer removes the letterbox gaps around the shared screen.
+    private func captureSize() -> CGSize { stageSize }
+
     private func startStream(with filter: SCContentFilter) {
         let cfg = SCStreamConfiguration()
-        cfg.width = 640
-        cfg.height = 1136
+        let size = captureSize()
+        cfg.width = Int(size.width)
+        cfg.height = Int(size.height)
         cfg.capturesAudio = false
 
         let s = SCStream(filter: filter, configuration: cfg, delegate: self)
@@ -394,7 +419,8 @@ final class LiveViewController: UIViewController,
         guard let cg = ciContext.createCGImage(ci, from: ci.extent) else { return }
         let raw = UIImage(cgImage: cg)
 
-        let scale = min(640 / raw.size.width, 1136 / raw.size.height, 1.0)
+        let size = captureSize()
+        let scale = min(size.width / raw.size.width, size.height / raw.size.height, 1.0)
         let target = CGSize(width: floor(raw.size.width * scale),
                             height: floor(raw.size.height * scale))
         let img = raw.preparingThumbnail(of: target) ?? raw
