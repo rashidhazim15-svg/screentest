@@ -549,10 +549,10 @@ final class LiveViewController: UIViewController,
 
         if interleaved {
             if isFloat {
-                let p = ptr.assumingMemoryBound(to: Float32.self)
+                let p = UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: Float32.self)
                 for i in 0..<(planeSamples * channels) { pcm[i] = p[i] }
             } else {
-                let p = ptr.assumingMemoryBound(to: Int16.self)
+                let p = UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: Int16.self)
                 for i in 0..<(planeSamples * channels) { pcm[i] = Float32(p[i]) / 32768.0 }
             }
         } else {
@@ -562,10 +562,10 @@ final class LiveViewController: UIViewController,
                 guard offset + planeBytes <= totalLength else { break }
                 let cp = ptr.advanced(by: offset)
                 if isFloat {
-                    let p = cp.assumingMemoryBound(to: Float32.self)
+                    let p = UnsafeMutableRawPointer(cp).assumingMemoryBound(to: Float32.self)
                     for i in 0..<planeSamples { pcm[i * channels + c] = p[i] }
                 } else {
-                    let p = cp.assumingMemoryBound(to: Int16.self)
+                    let p = UnsafeMutableRawPointer(cp).assumingMemoryBound(to: Int16.self)
                     for i in 0..<planeSamples { pcm[i * channels + c] = Float32(p[i]) / 32768.0 }
                 }
             }
