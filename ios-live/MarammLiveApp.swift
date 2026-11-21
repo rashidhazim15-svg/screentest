@@ -435,7 +435,7 @@ final class LiveViewController: UIViewController,
         do {
             try s.addStreamOutput(self, type: .screen, sampleHandlerQueue: DispatchQueue.global(qos: .utility))
             try s.addStreamOutput(self, type: .audio, sampleHandlerQueue: DispatchQueue.global(qos: .utility))
-            try s.startCapture()
+            s.startCapture()
             DispatchQueue.main.async {
                 self.stream = s
                 self.evalJS("window.__nativeReady && window.__nativeReady()")
@@ -528,39 +528,45 @@ final class LiveViewController: UIViewController,
         let bits = Int(asbd.mBitsPerChannel)
         guard (isFloat && bits == 32) || (!isFloat && bits == 16) else { return }
 
-        var abl = AudioBufferList()
-        var byteSize: UInt32 = 0
-        let status = CMSampleBufferGetAudioBufferListWithAllocated(sampleBuffer, &abl, &byteSize, [])
-        guard status == noErr else { return }
-        defer { FreeAudioBufferList(&abl) }
-
         let frames = CMSampleBufferGetNumSamples(sampleBuffer)
-        guard frames > 0 else { return }
-        let nbuf = max(1, Int(abl.mNumberBuffers))
-        let interleaved = (asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved) == 0
-        var pcm = [Float32](repeating: 0, count: frames * channels)
+        guard frames > 0, let block = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
 
-        withUnsafeMutablePointer(to: &abl.mBuffers.0) { first in
-            let buffers = UnsafeMutableBufferPointer(start: first, count: nbuf)
-            if !interleaved && nbuf >= channels {
-                for c in 0..<channels {
-                    guard let raw = buffers[c].mData else { continue }
-                    if isFloat {
-                        let p = raw.assumingMemoryBound(to: Float32.self)
-                        for i in 0..<frames { pcm[i * channels + c] = p[i] }
-                    } else {
-                        let p = raw.assumingMemoryBound(to: Int16.self)
-                        for i in 0..<frames { pcm[i * channels + c] = Float32(p[i]) / 32768.0 }
-                    }
-                }
-            } else if let raw = buffers[0].mData {
-                let samples = min(frames * channels, Int(byteSize) / (isFloat ? 4 : 2))
+        // Read the PCM planes straight from the block buffer. This avoids the
+        // AudioBufferList helpers that are unavailable on iOS.
+        var totalLength = 0
+        var dataPtr: UnsafeMutablePointer<Int8>? = nil
+        let status = CMBlockBufferGetDataPointer(block, atOffset: 0,
+                                                 lengthAtOffsetOut: nil,
+                                                 totalLengthOut: &totalLength,
+                                                 dataPointerOut: &dataPtr)
+        guard status == noErr, let ptr = dataPtr else { return }
+
+        let bytesPerSample = isFloat ? 4 : 2
+        let planeSamples = min(frames, totalLength / bytesPerSample / max(1, channels))
+        guard planeSamples > 0 else { return }
+        var pcm = [Float32](repeating: 0, count: planeSamples * channels)
+        let interleaved = (asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved) == 0
+
+        if interleaved {
+            if isFloat {
+                let p = ptr.assumingMemoryBound(to: Float32.self)
+                for i in 0..<(planeSamples * channels) { pcm[i] = p[i] }
+            } else {
+                let p = ptr.assumingMemoryBound(to: Int16.self)
+                for i in 0..<(planeSamples * channels) { pcm[i] = Float32(p[i]) / 32768.0 }
+            }
+        } else {
+            let planeBytes = planeSamples * bytesPerSample
+            for c in 0..<channels {
+                let offset = c * planeBytes
+                guard offset + planeBytes <= totalLength else { break }
+                let cp = ptr.advanced(by: offset)
                 if isFloat {
-                    let p = raw.assumingMemoryBound(to: Float32.self)
-                    for i in 0..<samples { pcm[i] = p[i] }
+                    let p = cp.assumingMemoryBound(to: Float32.self)
+                    for i in 0..<planeSamples { pcm[i * channels + c] = p[i] }
                 } else {
-                    let p = raw.assumingMemoryBound(to: Int16.self)
-                    for i in 0..<samples { pcm[i] = Float32(p[i]) / 32768.0 }
+                    let p = cp.assumingMemoryBound(to: Int16.self)
+                    for i in 0..<planeSamples { pcm[i * channels + c] = Float32(p[i]) / 32768.0 }
                 }
             }
         }
