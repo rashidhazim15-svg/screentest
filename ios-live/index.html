@@ -3956,6 +3956,66 @@ html[data-theme="dark"] .rp-body b{ color:var(--dm-ink); }
     --isl-bg-btn: rgba(24,26,34,.95);
     --isl-inner: inset 0 1px 0 rgba(255,255,255,.18), inset 0 -1px 0 rgba(255,255,255,.04);
   }
+
+  /* ---- Watch/stream controls: visible, flat, no glass ------------------ */
+  html body #chatBox.match #streamMute,
+  html body #chatBox.cinema #streamMute,
+  html body #chatBox.match #streamFs,
+  html body #chatBox.cinema #streamFs {
+    display: inline-flex !important;
+    position: absolute;
+    z-index: 9;
+    right: max(12px, env(safe-area-inset-right));
+    bottom: max(12px, env(safe-area-inset-bottom));
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    border: .5px solid rgba(255,255,255,.16) !important;
+    background: #17181f !important;
+    background-image: none !important;
+    color: #fff !important;
+    align-items: center; justify-content: center;
+    padding: 0; cursor: pointer;
+    box-shadow: none !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    transition: none !important;
+  }
+  html body #chatBox.match #streamFs,
+  html body #chatBox.cinema #streamFs { right: max(60px, calc(env(safe-area-inset-right) + 48px)); }
+  html body #chatBox.match #streamMute.muted,
+  html body #chatBox.cinema #streamMute.muted { background: #3a1620 !important; border-color: rgba(255,140,140,.4) !important; }
+  html body #chatBox.match #streamMute svg,
+  html body #chatBox.cinema #streamMute svg,
+  html body #chatBox.match #streamFs svg,
+  html body #chatBox.cinema #streamFs svg { width: 17px; height: 17px; display: block; }
+  html body #chatBox.match #streamMute .sm-cross,
+  html body #chatBox.cinema #streamMute .sm-cross { display: none; }
+  html body #chatBox.match #streamMute .sm-wave,
+  html body #chatBox.cinema #streamMute .sm-wave { display: block; }
+  html body #chatBox.match #streamMute.muted .sm-cross,
+  html body #chatBox.cinema #streamMute.muted .sm-cross { display: block; }
+  html body #chatBox.match #streamMute.muted .sm-wave,
+  html body #chatBox.cinema #streamMute.muted .sm-wave { display: none; }
+
+  /* The shared stage always starts below the status bar. */
+  html body #chatBox.cinema #watchSection {
+    top: env(safe-area-inset-top,0px) !important;
+    bottom: env(safe-area-inset-bottom,0px) !important;
+    height: auto !important;
+  }
+
+  /* Fullscreen fallback for WebViews without the Fullscreen API. */
+  #screenWrap.fs-zoom {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 10099 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    max-width: none !important;
+    max-height: none !important;
+    border-radius: 0 !important;
+    background: #000 !important;
+  }
 </style>
 
   <div id="rolePick" role="dialog" aria-label="اختيار المستخدم">
@@ -4000,6 +4060,9 @@ html[data-theme="dark"] .rp-body b{ color:var(--dm-ink); }
     <button id="stageClose" class="stage-x" onclick="closeWatch()" aria-label="إغلاق"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6.4 6.4 17.6 17.6M17.6 6.4 6.4 17.6" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg></button>
     <button id="streamMute" class="stage-mute" type="button" onclick="toggleStreamMute()" aria-label="كتم صوت البث">
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path class="sm-wave" d="M15.5 8.5a5 5 0 0 1 0 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path class="sm-wave" d="M18.2 6a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path class="sm-cross" d="m16 9 5 5M21 9l-5 5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
+    </button>
+    <button id="streamFs" class="stage-mute" type="button" onclick="toggleStreamFullscreen()" aria-label="تكبير الشاشة" title="تكبير الشاشة">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
     <button id="chatCallout" class="chatCallout" type="button" onclick="showWatchChat()" aria-label="إظهار الدردشة"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 11.5c0 3.9-3.6 7-8 7-1 0-2-.2-2.9-.5L4 20l1.2-3.4C4.4 15.4 4 13.5 4 11.5c0-3.9 3.6-7 8-7s8 3.1 8 7Z" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/></svg></button>
     <div id="screenBar"><span>أنت تشارك شاشتك الآن</span><button onclick="stopScreenShare()">إيقاف المشاركة</button></div>
@@ -7027,6 +7090,21 @@ const AE_EMOJI = {
     applyStreamMute();
     renderSettingsUI();
     chatToast(settings.streamMuted ? 'تم كتم صوت البث' : 'تم تشغيل صوت البث');
+  }
+  function toggleStreamFullscreen() {
+    const wrap = document.getElementById('screenWrap');
+    if (!wrap) return;
+    if (document.fullscreenElement) {
+      try { document.exitFullscreen(); } catch (e) {}
+      wrap.classList.remove('fs-zoom');
+      return;
+    }
+    if (wrap.classList.contains('fs-zoom')) { wrap.classList.remove('fs-zoom'); return; }
+    if (wrap.requestFullscreen) {
+      wrap.requestFullscreen().catch(() => { wrap.classList.add('fs-zoom'); });
+    } else {
+      wrap.classList.add('fs-zoom');
+    }
   }
   function autoMuteStream() {
     if (settings.streamMuted) return;
