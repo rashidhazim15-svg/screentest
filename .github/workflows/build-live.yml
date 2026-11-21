@@ -3,6 +3,9 @@ name: Build Maramm Live IPA (free)
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: xcode-27
@@ -43,3 +46,15 @@ jobs:
           name: MarammLive-ipa
           path: MarammLive.ipa
           if-no-files-found: error
+
+      - name: Publish IPA to repository
+        run: |
+          mkdir -p ios-live/out
+          cp MarammLive.ipa ios-live/out/MarammLive.ipa
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f ios-live/out/MarammLive.ipa
+          git commit -m "Publish build IPA ($GITHUB_SHA)" || echo "No IPA changes to commit"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
