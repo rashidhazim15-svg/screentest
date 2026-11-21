@@ -2773,6 +2773,54 @@ html[data-theme="dark"] .rp-body b{ color:var(--dm-ink); }
   #chatBox.cinema #ytWrap iframe,
   #chatBox.cinema #ytPlayer { max-height: calc(100dvh - env(safe-area-inset-top) - 31px); }
 
+  /* --- Cinema on iPhone: the shared screen IS the whole stage. ---------- */
+  /* #chatBox is already pinned below the status bar by the native bridge, so
+     filling it edge-to-edge puts the stream exactly below the status bar with
+     no thumbnail and no empty strips. */
+  #chatBox.cinema #watchSection {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: block;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background: #000;
+    box-sizing: border-box;
+  }
+  #chatBox.cinema #screenWrap {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    max-width: none;
+    max-height: none;
+    border-radius: 0;
+    overflow: hidden;
+    background: #000;
+    align-items: stretch;
+    justify-content: stretch;
+  }
+  #chatBox.cinema #screenVideo {
+    display: block;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    aspect-ratio: auto;
+    object-fit: contain;
+    object-position: center;
+    background: #000;
+    border-radius: 0;
+  }
+  #chatBox.cinema #ambLight { display: none; }
+  #chatBox.cinema #screenMsg { z-index: 3; }
+
   /* 6) Vinyl music card (cover over a spinning record + Arabic title). */
   .chat-music {
     display: flex;
